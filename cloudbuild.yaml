@@ -1,0 +1,23 @@
+steps:
+  # Build z Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/chat-vertex-ai:$COMMIT_SHA', '.']
+
+  # Push do Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/chat-vertex-ai:$COMMIT_SHA']
+
+  # Deploy do Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'chat-vertex-ai'
+      - '--image=gcr.io/$PROJECT_ID/chat-vertex-ai:$COMMIT_SHA'
+      - '--region=europe-central2'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,VERTEX_AI_LOCATION=europe-west1'
+
+images:
+  - 'gcr.io/$PROJECT_ID/chat-vertex-ai:$COMMIT_SHA'
