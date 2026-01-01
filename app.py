@@ -1,29 +1,27 @@
 import os
 from flask import Flask, render_template, request, jsonify
-import vertexai
-from vertexai.generative_models import GenerativeModel, ChatSession
+from google import genai
+from google.genai import types
 
 app = Flask(__name__)
 
-# Konfiguracja Vertex AI - używa ADC (Application Default Credentials)
+# Konfiguracja - używa ADC (Application Default Credentials)
 # Na Google Cloud automatycznie używa konta serwisowego bez klucza API
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "your-project-id")
 LOCATION = os.environ.get("VERTEX_AI_LOCATION", "us-central1")
 
-vertexai.init(project=PROJECT_ID, location=LOCATION)
+# Klient Vertex AI
+client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
 
-# Użyj Gemini - dostępny przez Vertex AI
-model = GenerativeModel("gemini-1.5-flash")
-
-# Przechowuj sesje czatu per użytkownik (w produkcji użyj Redis/DB)
-chat_sessions: dict[str, ChatSession] = {}
+# Przechowuj historię czatu per użytkownik
+chat_histories: dict[str, list] = {}
 
 
-def get_chat_session(session_id: str) -> ChatSession:
-    """Pobierz lub utwórz sesję czatu."""
-    if session_id not in chat_sessions:
-        chat_sessions[session_id] = model.start_chat()
-    return chat_sessions[session_id]
+def get_chat_history(session_id: str) -> list:
+    """Pobierz lub utwórz historię czatu."""
+    if session_id not in chat_histories:
+        chat_histories[session_id] = []
+    return chat_histories[session_id]
 
 
 @app.route("/")
@@ -43,9 +41,22 @@ def chat():
         return jsonify({"error": "Brak wiadomości"}), 400
 
     try:
-        chat_session = get_chat_session(session_id)
-        response = chat_session.send_message(message)
-        return jsonify({"response": response.text})
+        history = get_chat_history(session_id)
+
+        # Dodaj wiadomość użytkownika do historii
+        history.append(types.Content(role="user", parts=[types.Part(text=message)]))
+
+        # Wyślij do Gemini
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-001",
+            contents=history
+        )
+
+        # Dodaj odpowiedź do historii
+        assistant_message = response.text
+        history.append(types.Content(role="model", parts=[types.Part(text=assistant_message)]))
+
+        return jsonify({"response": assistant_message})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -56,8 +67,8 @@ def reset():
     data = request.json
     session_id = data.get("session_id", "default")
 
-    if session_id in chat_sessions:
-        del chat_sessions[session_id]
+    if session_id in chat_histories:
+        del chat_histories[session_id]
 
     return jsonify({"status": "ok"})
 
